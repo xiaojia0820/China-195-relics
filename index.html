@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>国宝打卡 (195件)</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #f5f6fa; margin: 0; padding: 0; }
+    #app { padding-bottom: 100px; }
+    .header { text-align: center; padding: 30px 20px 20px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.05); position: sticky; top: 0; z-index: 100; }
+    .progress-bar { width: 100%; background: #eee; height: 8px; border-radius: 4px; margin: 15px 0; overflow: hidden; }
+    .progress-fill { background: #d4af37; height: 100%; transition: width 0.3s; }
+    
+    /* 筛选栏样式 */
+    .filter-bar { display: flex; gap: 10px; margin-top: 15px; }
+    .filter-select { flex: 1; padding: 8px 5px; border-radius: 6px; border: 1px solid #ddd; background: #f9f9f9; font-size: 13px; color: #333; outline: none; -webkit-appearance: none; text-align: center; }
+    
+    .relic-list { padding: 15px; }
+    .relic-item { background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 2px solid transparent; transition: all 0.2s; }
+    .relic-item.active { background: #fdfaf3; border-color: #d4af37; }
+    
+    .relic-img { width: 60px; height: 60px; border-radius: 8px; object-fit: cover; background: #eee; margin-right: 15px; flex-shrink: 0; }
+    
+    .relic-info { flex: 1; }
+    .relic-info h3 { margin: 0 0 6px 0; font-size: 16px; color: #333; }
+    .relic-info p { margin: 0; font-size: 12px; color: #888; }
+    .relic-tags { margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag { font-size: 10px; background: #f0f0f0; color: #666; padding: 2px 6px; border-radius: 4px; }
+    
+    .check-icon { font-size: 24px; margin-left: 10px; opacity: 0.2; }
+    .relic-item.active .check-icon { opacity: 1; }
+    
+    .empty-state { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
+    
+    .fab { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #2f3542; color: #fff; border: none; padding: 16px 32px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); font-size: 16px; font-weight: bold; z-index: 10; width: 65%; letter-spacing: 1px; }
+
+    /* 弹窗与海报样式 */
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .modal img { max-width: 85%; max-height: 75vh; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .modal p { margin-top: 20px; font-size: 15px; color: #fff; }
+    .close-btn { position: absolute; top: 30px; right: 30px; font-size: 36px; color: #fff; background: none; border: none; padding: 10px; }
+
+    #poster-target { background: #f9f7f1; width: 375px; position: absolute; left: -9999px; top: 0; box-sizing: border-box; padding: 40px 30px; border: 1px solid #e0dbce; }
+    .poster-header { text-align: center; margin-bottom: 30px; border-bottom: 1px solid #d4af37; padding-bottom: 20px; }
+    .poster-header h2 { margin: 0; font-size: 26px; color: #2c2c2c; letter-spacing: 2px; }
+    .poster-header p { margin: 10px 0 0 0; color: #7a705b; font-size: 14px; }
+    .poster-stats { display: flex; justify-content: space-between; margin-bottom: 30px; }
+    .stat-box { text-align: center; }
+    .stat-num { font-size: 32px; font-weight: bold; color: #d4af37; }
+    .stat-label { font-size: 12px; color: #888; margin-top: 5px; }
+    .poster-grid { display: grid; grid-template-columns: repeat(15, 1fr); gap: 6px; }
+    .poster-dot { aspect-ratio: 1; background: #e8e4d9; border-radius: 2px; }
+    .poster-dot.active { background: #d4af37; box-shadow: 0 0 4px rgba(212,175,55,0.5); }
+    .poster-footer { margin-top: 40px; text-align: center; font-size: 12px; color: #a39c8b; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <h2 style="margin:0 0 10px 0;">不可出境展览文物</h2>
+      <p style="margin:0; color:#666;">已寻访 {{ checkedCount }} / {{ relics.length }} 件</p>
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: percentage + '%' }"></div>
+      </div>
+      
+      <!-- 动态筛选栏 -->
+      <div class="filter-bar">
+        <select class="filter-select" v-model="filters.dynasty">
+          <option value="">全部时代</option>
+          <option v-for="opt in dynastyOptions" :key="opt" :value="opt">{{ opt }}</option>
+        </select>
+        <select class="filter-select" v-model="filters.museum">
+          <option value="">全部展出地</option>
+          <option v-for="opt in museumOptions" :key="opt" :value="opt">{{ opt }}</option>
+        </select>
+        <select class="filter-select" v-model="filters.type">
+          <option value="">全部类型</option>
+          <option v-for="opt in typeOptions" :key="opt" :value="opt">{{ opt }}</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="relic-list">
+      <div v-if="filteredRelics.length === 0" class="empty-state">
+        没有找到符合条件的文物哦
+      </div>
+      
+      <div v-for="item in filteredRelics" :key="item.id" 
+           class="relic-item" :class="{ active: checkedMap[item.id] }"
+           @click="toggleCheck(item.id)">
+        <img class="relic-img" 
+             :src="'images/' + item.id + '.jpg'" 
+             @error="handleImageError" 
+             alt="缩略图">
+        <div class="relic-info">
+          <h3>{{ item.name }}</h3>
+          <p>{{ item.museum }}</p>
+          <div class="relic-tags">
+            <span class="tag">{{ item.dynasty }}</span>
+            <span class="tag" v-if="item.type">{{ item.type }}</span>
+            <span class="tag" v-if="item.batch">{{ item.batch }}</span>
+          </div>
+        </div>
+        <div class="check-icon">{{ checkedMap[item.id] ? '✨' : '⚪' }}</div>
+      </div>
+    </div>
+
+    <button class="fab" @click="generatePoster">{{ isGenerating ? '正在绘制海报...' : '生成打卡海报' }}</button>
+
+    <div id="poster-target" ref="posterTarget">
+      <div class="poster-header">
+        <h2>国宝寻访录</h2>
+        <p>195件禁止出境展览文物</p>
+      </div>
+      <div class="poster-stats">
+        <div class="stat-box">
+          <div class="stat-num">{{ checkedCount }}</div>
+          <div class="stat-label">已点亮 (件)</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-num">{{ percentage }}%</div>
+          <div class="stat-label">完成度</div>
+        </div>
+      </div>
+      <div class="poster-grid">
+        <div v-for="item in 195" :key="'p'+item" 
+             class="poster-dot" :class="{ active: checkedMap[item] }">
+        </div>
+      </div>
+      <div class="poster-footer">
+        每一方印记，皆是华夏文明的回响
+      </div>
+    </div>
+
+    <div class="modal" v-if="posterUrl">
+      <button class="close-btn" @click="posterUrl = null">×</button>
+      <img :src="posterUrl" />
+      <p>👆 长按海报保存至手机相册</p>
+    </div>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    const relicsData = [
+      { id: 1, name: "彩绘鹳鱼石斧图陶缸", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶器", batch: "第一批" },
+      { id: 2, name: "陶鹰鼎", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶器", batch: "第一批" },
+      { id: 3, name: "后母戊鼎", museum: "中国国家博物馆", dynasty: "商", type: "青铜器", batch: "第一批" },
+      { id: 4, name: "利簋", museum: "中国国家博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 5, name: "大盂鼎", museum: "中国国家博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 6, name: "虢季子白盘", museum: "中国国家博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 7, name: "凤冠", museum: "中国国家博物馆", dynasty: "明", type: "杂项", batch: "第一批" },
+      { id: 8, name: "嵌绿松石象牙杯", museum: "中国社会科学院考古研究所", dynasty: "商", type: "杂项", batch: "第一批" },
+      { id: 9, name: "西周晋侯苏钟", museum: "上海博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 10, name: "大克鼎", museum: "上海博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 11, name: "太保鼎", museum: "天津博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 12, name: "河姆渡出土朱漆碗", museum: "浙江省博物馆", dynasty: "新石器时代", type: "杂项", batch: "第一批" },
+      { id: 13, name: "河姆渡出土陶灶", museum: "浙江省博物馆", dynasty: "新石器时代", type: "陶器", batch: "第一批" },
+      { id: 14, name: "新石器时代良渚文化玉琮", museum: "浙江省文物考古研究所", dynasty: "新石器时代", type: "玉器", batch: "第一批" },
+      { id: 15, name: "水晶杯", museum: "杭州市博物馆", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 16, name: "淅川出土铜禁", museum: "河南博物院", dynasty: "春秋", type: "青铜器", batch: "第一批" },
+      { id: 17, name: "莲鹤铜方壶", museum: "故宫博物院", dynasty: "春秋", type: "青铜器", batch: "第一批" },
+      { id: 18, name: "齐王墓青铜方镜", museum: "淄博市博物馆", dynasty: "西汉", type: "青铜器", batch: "第一批" },
+      { id: 19, name: "铸客大铜鼎", museum: "安徽博物院", dynasty: "战国", type: "青铜器", batch: "第一批" },
+      { id: 20, name: "朱然墓出土漆木屐", museum: "马鞍山市博物馆", dynasty: "三国（吴）", type: "杂项", batch: "第一批" },
+      { id: 21, name: "朱然墓出土贵族生活图漆盘", museum: "马鞍山市博物馆", dynasty: "三国（吴）", type: "杂项", batch: "第一批" },
+      { id: 22, name: "司马金龙墓出土漆屏", museum: "山西博物院", dynasty: "北魏", type: "杂项", batch: "第一批" },
+      { id: 23, name: "娄睿墓鞍马出行图壁画", museum: "山西省考古研究所", dynasty: "北齐", type: "杂项", batch: "第一批" },
+      { id: 24, name: "涅槃变相碑", museum: "山西省艺术博物院（纯阳宫）", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 25, name: "常阳太尊石像", museum: "山西省艺术博物院（纯阳宫）", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 26, name: "大玉戈", museum: "湖北省博物馆", dynasty: "商", type: "玉器", batch: "第一批" },
+      { id: 27, name: "曾侯乙编钟", museum: "湖北省博物馆", dynasty: "战国", type: "青铜器", batch: "第一批" },
+      { id: 28, name: "曾侯乙墓外棺", museum: "湖北省博物馆", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 29, name: "曾侯乙青铜尊盘", museum: "湖北省博物馆", dynasty: "战国", type: "青铜器", batch: "第一批" },
+      { id: 30, name: "彩漆木雕小座屏", museum: "湖北省博物馆", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 31, name: "红山文化女神像", museum: "辽宁省考古研究所", dynasty: "新石器时代", type: "杂项", batch: "第一批" },
+      { id: 32, name: "鸭形玻璃注", museum: "辽宁省博物馆", dynasty: "北燕", type: "杂项", batch: "第一批" },
+      { id: 33, name: "青铜神树", museum: "广汉三星堆博物馆", dynasty: "商", type: "青铜器", batch: "第一批" },
+      { id: 34, name: "三星堆出土玉边璋", museum: "广汉三星堆博物馆", dynasty: "商", type: "玉器", batch: "第一批" },
+      { id: 35, name: "摇钱树", museum: "绵阳市博物馆", dynasty: "东汉", type: "青铜器", batch: "第一批" },
+      { id: 36, name: "铜奔马", museum: "甘肃省博物馆", dynasty: "东汉", type: "青铜器", batch: "第一批" },
+      { id: 37, name: "铜车马", museum: "秦始皇兵马俑博物馆", dynasty: "秦", type: "青铜器", batch: "第一批" },
+      { id: 38, name: "墙盘", museum: "宝鸡青铜器博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 39, name: "淳化大鼎", museum: "陕西历史博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 40, name: "何尊", museum: "宝鸡青铜器博物馆", dynasty: "西周", type: "青铜器", batch: "第一批" },
+      { id: 41, name: "茂陵石雕", museum: "茂陵博物馆", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 42, name: "大秦景教流行中国碑", museum: "西安碑林博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 43, name: "舞马衔杯仿皮囊式银壶", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 44, name: "镶金兽首玛瑙杯", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 45, name: "景云铜钟", museum: "西安碑林博物馆", dynasty: "唐", type: "青铜器", batch: "第一批" },
+      { id: 46, name: "银花双轮十二环锡杖", museum: "法门寺博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 47, name: "八重宝函", museum: "法门寺博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 48, name: "铜浮屠", museum: "法门寺博物馆", dynasty: "唐", type: "杂项", batch: "第一批" },
+      { id: 49, name: "“五星出东方利中国”护膊", museum: "新疆维吾尔自治区博物馆", dynasty: "东汉", type: "杂项", batch: "第一批" },
+      { id: 50, name: "铜错金银四龙四凤方案", museum: "河北博物院", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 51, name: "中山王铁足铜鼎", museum: "河北博物院", dynasty: "战国", type: "青铜器", batch: "第一批" },
+      { id: 52, name: "刘胜金缕玉衣", museum: "河北博物院", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 53, name: "长信宫灯", museum: "河北博物院", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 54, name: "铜屏风构件5件", museum: "西汉南越王博物馆", dynasty: "西汉", type: "青铜器", batch: "第一批" },
+      { id: 55, name: "角形玉杯", museum: "西汉南越王博物馆", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 56, name: "人物御龙帛画", museum: "湖南博物院", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 57, name: "人物龙凤帛画", museum: "湖南博物院", dynasty: "战国", type: "杂项", batch: "第一批" },
+      { id: 58, name: "直裾素纱襌衣", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 59, name: "马王堆一号墓木棺椁", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 60, name: "马王堆一号墓T型帛画", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第一批" },
+      { id: 61, name: "红地云珠日天锦", museum: "青海省文物考古研究所", dynasty: "北朝", type: "杂项", batch: "第一批" },
+      { id: 62, name: "西夏文佛经《吉祥遍至口和本续》纸本", museum: "宁夏文物考古研究所", dynasty: "西夏", type: "杂项", batch: "第一批" },
+      { id: 63, name: "青花釉里红瓷仓", museum: "江西省博物馆", dynasty: "元", type: "杂项", batch: "第一批" },
+      { id: 64, name: "竹林七贤砖印模画", museum: "南京博物院", dynasty: "南朝", type: "杂项", batch: "第一批" },
+      { id: 65, name: "陆机《平复帖》卷", museum: "故宫博物院", dynasty: "西晋", type: "书法作品", batch: "第二批" },
+      { id: 66, name: "王珣《伯远帖》卷", museum: "故宫博物院", dynasty: "东晋", type: "书法作品", batch: "第二批" },
+      { id: 67, name: "冯承素摹王羲之《兰亭序》卷", museum: "故宫博物院", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 68, name: "欧阳询《梦奠帖》卷", museum: "辽宁省博物馆", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 69, name: "国诠书《善见律卷》", museum: "故宫博物院", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 70, name: "怀素《苦笋帖》卷", museum: "上海博物馆", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 71, name: "杜牧《张好好诗》卷", museum: "故宫博物院", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 72, name: "唐人《摹王羲之一门书翰》卷", museum: "辽宁省博物馆", dynasty: "唐", type: "书法作品", batch: "第二批" },
+      { id: 73, name: "杨凝式《神仙起居法帖》卷", museum: "故宫博物院", dynasty: "五代", type: "书法作品", batch: "第二批" },
+      { id: 74, name: "林逋《自书诗》卷", museum: "故宫博物院", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 75, name: "蔡襄《自书诗》卷", museum: "故宫博物院", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 76, name: "文彦博《三帖卷》", museum: "故宫博物院", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 77, name: "韩琦《行楷信札卷》", museum: "贵州省博物馆", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 78, name: "王安石《楞严经旨要》卷", museum: "上海博物馆", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 79, name: "黄庭坚《诸上座》卷", museum: "故宫博物院", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 80, name: "米芾《苕溪诗》卷", museum: "故宫博物院", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 81, name: "赵佶《草书千字文》卷", museum: "辽宁省博物馆", dynasty: "北宋", type: "书法作品", batch: "第二批" },
+      { id: 82, name: "展子虔《游春图》卷", museum: "故宫博物院", dynasty: "隋", type: "绘画作品", batch: "第二批" },
+      { id: 83, name: "韩滉《五牛图》卷", museum: "故宫博物院", dynasty: "唐", type: "绘画作品", batch: "第二批" },
+      { id: 84, name: "周昉《挥扇仕女图》卷 [4]", museum: "故宫博物院", dynasty: "唐", type: "绘画作品", batch: "第二批" },
+      { id: 85, name: "孙位《高逸图》卷", museum: "上海博物馆", dynasty: "唐", type: "绘画作品", batch: "第二批" },
+      { id: 86, name: "王齐翰《勘书图》卷", museum: "南京大学", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 87, name: "周文矩《重屏会棋图》卷", museum: "故宫博物院", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 88, name: "胡瓌《卓歇图》卷", museum: "故宫博物院", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 89, name: "顾闳中《韩熙载夜宴图》卷", museum: "故宫博物院", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 90, name: "卫贤《高士图》轴", museum: "故宫博物院", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 91, name: "董源《夏景山口待渡图》卷", museum: "辽宁省博物馆", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 92, name: "黄筌《写生珍禽图》卷", museum: "故宫博物院", dynasty: "五代", type: "绘画作品", batch: "第二批" },
+      { id: 93, name: "王诜《渔村小雪图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 94, name: "梁师闵《芦汀密雪图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 95, name: "祁序《江山放牧图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 96, name: "李公麟《临韦偃牧放图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 97, name: "张择端《清明上河图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 98, name: "王希孟《千里江山图》卷", museum: "故宫博物院", dynasty: "北宋", type: "绘画作品", batch: "第二批" },
+      { id: 99, name: "马和之《后赤壁赋图》卷", museum: "故宫博物院", dynasty: "南宋", type: "绘画作品", batch: "第二批" },
+      { id: 100, name: "赵伯骕《万松金阙图》卷", museum: "故宫博物院", dynasty: "南宋", type: "绘画作品", batch: "第二批" },
+      { id: 101, name: "宋人摹阎立本《步辇图》卷", museum: "故宫博物院", dynasty: "宋代", type: "绘画作品", batch: "第二批" },
+      { id: 102, name: "商子龙鼎", museum: "中国国家博物馆", dynasty: "商", type: "青铜器", batch: "第三批" },
+      { id: 103, name: "商四羊方尊", museum: "中国国家博物馆", dynasty: "商", type: "青铜器", batch: "第三批" },
+      { id: 104, name: "商龙纹兕觥", museum: "山西博物院", dynasty: "商", type: "青铜器", batch: "第三批" },
+      { id: 105, name: "商大禾方鼎", museum: "湖南博物院", dynasty: "商", type: "青铜器", batch: "第三批" },
+      { id: 106, name: "商青铜立人像", museum: "广汉三星堆博物馆", dynasty: "商", type: "青铜器", batch: "第三批" },
+      { id: 107, name: "西周天亡簋", museum: "中国国家博物馆", dynasty: "西周", type: "青铜器", batch: "第三批" },
+      { id: 108, name: "西周伯矩鬲", museum: "首都博物馆", dynasty: "西周", type: "青铜器", batch: "第三批" },
+      { id: 109, name: "西周晋侯鸟尊", museum: "山西博物院", dynasty: "西周", type: "青铜器", batch: "第三批" },
+      { id: 110, name: "西周㝬簋", museum: "宝鸡青铜器博物院", dynasty: "西周", type: "青铜器", batch: "第三批" },
+      { id: 111, name: "西周逨盘", museum: "宝鸡青铜器博物院", dynasty: "西周", type: "青铜器", batch: "第三批" },
+      { id: 112, name: "春秋越王勾践剑", museum: "湖北省博物馆", dynasty: "春秋", type: "青铜器", batch: "第三批" },
+      { id: 113, name: "战国商鞅方升", museum: "上海博物馆", dynasty: "战国", type: "青铜器", batch: "第三批" },
+      { id: 114, name: "战国错金银镶嵌丝网套铜壶", museum: "南京博物院", dynasty: "西汉", type: "青铜器", batch: "第三批" },
+      { id: 115, name: "西汉诅盟场面铜贮贝器", museum: "中国国家博物馆", dynasty: "西汉", type: "青铜器", batch: "第三批" },
+      { id: 116, name: "西汉彩绘人物车马镜", museum: "西安博物院", dynasty: "西汉", type: "青铜器", batch: "第三批" },
+      { id: 117, name: "西汉杀人祭柱场面铜贮贝器", museum: "云南省博物馆", dynasty: "西汉", type: "青铜器", batch: "第三批" },
+      { id: 118, name: "新石器时代仰韶文化彩陶人面鱼纹盆", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 119, name: "新石器时代马家窑文化彩陶舞蹈纹盆", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 120, name: "新石器时代马家窑文化彩陶贴塑人纹双系壶", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 121, name: "新石器时代仰韶文化网纹彩陶船形壶", museum: "中国国家博物馆", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 122, name: "新石器时代龙山文化彩绘龙纹陶盘", museum: "中国社会科学院考古研究所", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 123, name: "新石器时代仰韶文化彩陶人形双系瓶", museum: "甘肃省博物馆", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 124, name: "新石器时代大汶口文化八角星纹彩陶豆", museum: "山东省文物考古研究所", dynasty: "新石器时代", type: "陶瓷", batch: "第三批" },
+      { id: 125, name: "吴“永安三年”款青釉堆塑谷仓罐", museum: "故宫博物院", dynasty: "三国（吴）", type: "陶瓷", batch: "第三批" },
+      { id: 126, name: "吴“赤乌十四年”款青釉虎子", museum: "中国国家博物馆", dynasty: "三国（吴）", type: "陶瓷", batch: "第三批" },
+      { id: 127, name: "吴青釉褐彩羽人纹双系壶", museum: "南京市博物馆", dynasty: "三国（吴）", type: "陶瓷", batch: "第三批" },
+      { id: 128, name: "西晋青釉神兽尊", museum: "南京博物院", dynasty: "西晋", type: "陶瓷", batch: "第三批" },
+      { id: 129, name: "北齐青釉仰覆莲花尊", museum: "中国国家博物馆", dynasty: "北齐", type: "陶瓷", batch: "第三批" },
+      { id: 130, name: "北齐白釉绿彩长颈瓶", museum: "河南博物院", dynasty: "北齐", type: "陶瓷", batch: "第三批" },
+      { id: 131, name: "隋白釉龙柄双联传瓶", museum: "天津博物馆", dynasty: "隋", type: "陶瓷", batch: "第三批" },
+      { id: 132, name: "唐青釉凤首龙柄壶", museum: "故宫博物院", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 133, name: "唐鲁山窑黑釉蓝斑腰鼓", museum: "故宫博物院", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 134, name: "唐代陶骆驼载乐舞三彩俑", museum: "中国国家博物馆", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 135, name: "唐长沙窑青釉褐蓝彩双系罐", museum: "扬州博物馆", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 136, name: "唐越窑青釉褐彩云纹五足炉", museum: "临安博物馆", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 137, name: "唐长沙窑青釉褐彩贴花人物纹壶", museum: "湖南博物院", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 138, name: "唐三彩骆驼载乐俑", museum: "陕西历史博物馆", dynasty: "唐", type: "陶瓷", batch: "第三批" },
+      { id: 139, name: "五代耀州窑摩羯形水盂", museum: "辽宁省博物馆", dynasty: "五代", type: "陶瓷", batch: "第三批" },
+      { id: 140, name: "五代越窑莲花式托盏", museum: "苏州博物馆", dynasty: "五代", type: "陶瓷", batch: "第三批" },
+      { id: 141, name: "五代耀州窑青釉刻花提梁倒流壶", museum: "陕西历史博物馆", dynasty: "五代", type: "陶瓷", batch: "第三批" },
+      { id: 142, name: "北宋汝窑天青釉弦纹樽", museum: "故宫博物院", dynasty: "北宋", type: "陶瓷", batch: "第三批" },
+      { id: 143, name: "北宋官窑弦纹瓶", museum: "故宫博物院", dynasty: "北宋", type: "陶瓷", batch: "第三批" },
+      { id: 144, name: "北宋钧窑月白釉出戟尊", museum: "故宫博物院", dynasty: "北宋", type: "陶瓷", batch: "第三批" },
+      { id: 145, name: "北宋定窑白釉刻莲花瓣纹龙首净瓶", museum: "定州市博物馆", dynasty: "北宋", type: "陶瓷", batch: "第三批" },
+      { id: 146, name: "北宋官窑贯耳尊", museum: "吉林省博物院", dynasty: "北宋", type: "陶瓷", batch: "第三批" },
+      { id: 147, name: "宋登封窑珍珠地划花虎豹纹瓶", museum: "故宫博物院", dynasty: "宋代", type: "陶瓷", batch: "第三批" },
+      { id: 148, name: "元青花萧何月下追韩信图梅瓶", museum: "南京市博物馆", dynasty: "元", type: "陶瓷", batch: "第三批" },
+      { id: 149, name: "元蓝釉白龙纹梅瓶", museum: "扬州博物馆", dynasty: "元", type: "陶瓷", batch: "第三批" },
+      { id: 150, name: "新石器时代红山文化玉龙", museum: "中国国家博物馆", dynasty: "新石器时代", type: "玉器", batch: "第三批" },
+      { id: 151, name: "新石器时代良渚文化神人兽面纹玉钺", museum: "浙江省博物馆", dynasty: "新石器时代", type: "玉器", batch: "第三批" },
+      { id: 152, name: "夏七孔玉刀", museum: "洛阳博物馆", dynasty: "夏", type: "玉器", batch: "第三批" },
+      { id: 153, name: "西周晋侯夫人组玉佩", museum: "山西博物院", dynasty: "西周", type: "玉器", batch: "第三批" },
+      { id: 154, name: "战国多节活环套练玉佩", museum: "湖北省博物馆", dynasty: "战国", type: "玉器", batch: "第三批" },
+      { id: 155, name: "西汉“皇后之玺”玉玺", museum: "陕西历史博物馆", dynasty: "西汉", type: "玉器", batch: "第三批" },
+      { id: 156, name: "东汉镂雕东王公西王母纹玉座屏", museum: "定州市博物馆", dynasty: "东汉", type: "玉器", batch: "第三批" },
+      { id: 157, name: "西晋神兽纹玉樽", museum: "湖南博物院", dynasty: "西晋", type: "玉器", batch: "第三批" },
+      { id: 158, name: "元“统领释教大元国师之印”龙钮玉印", museum: "西藏博物馆", dynasty: "元", type: "玉器", batch: "第三批" },
+      { id: 159, name: "商太阳神鸟金饰", museum: "成都金沙遗址博物馆", dynasty: "商", type: "杂项", batch: "第三批" },
+      { id: 160, name: "商金杖", museum: "广汉三星堆博物馆", dynasty: "商", type: "杂项", batch: "第三批" },
+      { id: 161, name: "战国鎏金嵌玉镶琉璃银带钩", museum: "中国国家博物馆", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 162, name: "西汉“滇王之印”金印", museum: "中国国家博物馆", dynasty: "西汉", type: "杂项", batch: "第三批" },
+      { id: 163, name: "西汉错金银镶松石狩猎纹铜伞铤", museum: "河北省文物研究所", dynasty: "西汉", type: "杂项", batch: "第三批" },
+      { id: 164, name: "唐龟负论语玉烛酒筹鎏金银筒", museum: "镇江博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 165, name: "战国彩绘乐舞图鸳鸯形漆盒", museum: "湖北省博物馆", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 166, name: "西汉识文彩绘盝顶长方形漆奁", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第三批" },
+      { id: 167, name: "西汉黑漆朱绘六博具", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第三批" },
+      { id: 168, name: "吴彩绘季札挂剑图漆盘", museum: "安徽省文物考古研究所", dynasty: "三国（吴）", type: "杂项", batch: "第三批" },
+      { id: 169, name: "吴皮胎犀皮漆鎏金铜扣耳杯（2件）", museum: "安徽省文物考古研究所", dynasty: "三国（吴）", type: "杂项", batch: "第三批" },
+      { id: 170, name: "北宋木雕真珠舍利宝幢（含木函）", museum: "苏州博物馆", dynasty: "北宋", type: "杂项", batch: "第三批" },
+      { id: 171, name: "新石器时代大汶口文化象牙梳", museum: "中国国家博物馆", dynasty: "新石器时代", type: "杂项", batch: "第三批" },
+      { id: 172, name: "新石器时代河姆渡文化双鸟朝阳纹象牙雕刻器", museum: "浙江省博物馆", dynasty: "新石器时代", type: "杂项", batch: "第三批" },
+      { id: 173, name: "隋绿玻璃盖罐", museum: "中国国家博物馆", dynasty: "隋", type: "杂项", batch: "第三批" },
+      { id: 174, name: "隋绿玻璃小瓶", museum: "中国国家博物馆", dynasty: "隋", type: "杂项", batch: "第三批" },
+      { id: 175, name: "汉红地对人兽树纹罽袍", museum: "新疆维吾尔自治区文物考古研究所", dynasty: "汉", type: "杂项", batch: "第三批" },
+      { id: 176, name: "北魏刺绣佛像供养人", museum: "敦煌研究院", dynasty: "北魏", type: "杂项", batch: "第三批" },
+      { id: 177, name: "北朝方格兽纹锦", museum: "新疆维吾尔自治区博物馆", dynasty: "北朝", type: "杂项", batch: "第三批" },
+      { id: 178, name: "北宋灵鹫纹锦袍", museum: "故宫博物院", dynasty: "北宋", type: "杂项", batch: "第三批" },
+      { id: 179, name: "战国石鼓（1组10只）", museum: "故宫博物院", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 180, name: "唐昭陵六骏石刻（什伐赤、白蹄乌、特勒骠、青骓4幅）", museum: "西安碑林博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 181, name: "宋拓西岳华山庙碑册（华阴本）", museum: "故宫博物院", dynasty: "宋代", type: "杂项", batch: "第三批" },
+      { id: 182, name: "明曹全碑初拓本（“因”字不损本）", museum: "上海博物馆", dynasty: "明", type: "杂项", batch: "第三批" },
+      { id: 183, name: "唐写本王仁煦《刊谬补缺切韵》", museum: "故宫博物院", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 184, name: "北宋刻开宝藏本《阿惟越致经》（1卷）", museum: "中国国家图书馆", dynasty: "北宋", type: "杂项", batch: "第三批" },
+      { id: 185, name: "北宋刻本《范文正公文集》（30卷）", museum: "中国国家图书馆", dynasty: "北宋", type: "杂项", batch: "第三批" },
+      { id: 186, name: "唐章怀太子墓壁画马球图（1组）", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 187, name: "唐章怀太子墓壁画狩猎出行图（1组 ）", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 188, name: "唐懿德太子墓壁画阙楼图（1组）", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 189, name: "唐永泰公主墓壁画宫女图（1组）", museum: "陕西历史博物馆", dynasty: "唐", type: "杂项", batch: "第三批" },
+      { id: 190, name: "战国简《金縢》", museum: "清华大学", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 191, name: "战国郭店楚简《老子（甲、乙、丙）》", museum: "荆门市博物馆", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 192, name: "战国楚简《孔子诗论》", museum: "上海博物馆", dynasty: "战国", type: "杂项", batch: "第三批" },
+      { id: 193, name: "秦云梦睡虎地秦简《语书》", museum: "湖北省博物馆", dynasty: "秦", type: "杂项", batch: "第三批" },
+      { id: 194, name: "秦简《数》", museum: "湖南大学", dynasty: "秦", type: "杂项", batch: "第三批" },
+      { id: 195, name: "西汉马王堆汉墓帛书《周易》", museum: "湖南博物院", dynasty: "西汉", type: "杂项", batch: "第三批" },
+    ];
+
+    createApp({
+      data() {
+        return {
+          relics: relicsData,
+          checkedMap: {},
+          posterUrl: null,
+          isGenerating: false,
+          filters: {
+            dynasty: '',
+            museum: '',
+            type: ''
+          },
+          fallbackImage: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" viewBox="0 0 60 60"><rect width="60" height="60" fill="%23e0e0e0"/><path d="M18 38 L30 26 L42 38 M24 22 A3 3 0 1 1 24 21.9" stroke="%23999" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        }
+      },
+      computed: {
+        dynastyOptions() {
+          const timeline = [
+            "新石器时代", "夏", "商", "商周", "西周", "春秋", "战国", "先秦",
+            "秦", "西汉", "汉", "东汉", "三国", "三国（吴）", "西晋", "东晋", "北燕", "南朝",
+            "北朝", "北魏", "北齐", "隋", "唐", "五代", "北宋", "南宋", "宋代", "辽", "西夏", "金", "元", "明", "清"
+          ];
+          let options = [...new Set(this.relics.map(r => r.dynasty))].filter(Boolean);
+          
+          return options.sort((a, b) => {
+            let indexA = timeline.indexOf(a);
+            let indexB = timeline.indexOf(b);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1 && indexB === -1) return -1;
+            if (indexB !== -1 && indexA === -1) return 1;
+            return a.localeCompare(b);
+          });
+        },
+        museumOptions() {
+          return [...new Set(this.relics.map(r => r.museum))].filter(Boolean);
+        },
+        typeOptions() {
+          return [...new Set(this.relics.map(r => r.type))].filter(Boolean);
+        },
+        filteredRelics() {
+          return this.relics.filter(item => {
+            const matchDynasty = this.filters.dynasty === '' || item.dynasty === this.filters.dynasty;
+            const matchMuseum = this.filters.museum === '' || item.museum === this.filters.museum;
+            const matchType = this.filters.type === '' || item.type === this.filters.type;
+            return matchDynasty && matchMuseum && matchType;
+          });
+        },
+        checkedCount() {
+          return Object.values(this.checkedMap).filter(v => v).length;
+        },
+        percentage() {
+          if (195 === 0) return 0;
+          return (this.checkedCount / 195 * 100).toFixed(1);
+        }
+      },
+      mounted() {
+        const saved = localStorage.getItem('relics_checked');
+        if (saved) {
+          this.checkedMap = JSON.parse(saved);
+        }
+      },
+      methods: {
+        toggleCheck(id) {
+          this.checkedMap[id] = !this.checkedMap[id];
+          localStorage.setItem('relics_checked', JSON.stringify(this.checkedMap));
+        },
+        handleImageError(e) {
+          e.target.src = this.fallbackImage;
+          e.target.onerror = null; 
+        },
+        async generatePoster() {
+          this.isGenerating = true;
+          try {
+            const target = this.$refs.posterTarget;
+            target.style.left = '0';
+            target.style.zIndex = '-1';
+            
+            const canvas = await html2canvas(target, {
+              scale: 3, 
+              backgroundColor: "#f9f7f1"
+            });
+            
+            target.style.left = '-9999px';
+            this.posterUrl = canvas.toDataURL("image/jpeg", 0.9);
+          } catch (e) {
+            alert('生成失败: ' + e.message);
+          } finally {
+            this.isGenerating = false;
+          }
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
+
